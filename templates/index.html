@@ -26,6 +26,12 @@
                 <div id="shareLink">{{ request.url_root }}</div>
                 <button onclick="copyLink()" class="copy-btn">Копировать ссылку</button>
             </div>
+        <!-- ВРЕМЕННЫЙ БЛОК ДЛЯ ОТЛАДКИ - УДАЛИТЬ ПОСЛЕ ИСПРАВЛЕНИЯ -->
+        <div class="debug-panel" style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; margin: 10px 0;">
+            <h3>Отладка (удалить после исправления):</h3>
+            <div id="debugStatus"></div>
+            <button onclick="checkDebugTime()" class="debug-btn">Проверить время сервера</button>
+        </div>
         </header>
 
         <!-- Админ панель -->
@@ -190,7 +196,20 @@
             }
         }
 
-        // Функция для обновления таймера
+        // Временная функция для отладки - удалить после исправления
+        async function checkDebugTime() {
+            try {
+                const response = await fetch(`${API_BASE}/api/debug/time`);
+                const data = await response.json();
+                document.getElementById('debugStatus').innerHTML = `
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                console.error('Ошибка отладки:', error);
+            }
+        }
+
+        // Обновите функцию updateTimer для отображения отладочной информации
         async function updateTimer() {
             const status = await getStatus();
             if (!status) return;
@@ -202,6 +221,16 @@
 
             // Обновляем время активации в заголовке
             activationTimeElement.textContent = status.activation_time;
+
+            // Временная отладочная информация
+            if (status.debug_info) {
+                document.getElementById('debugStatus').innerHTML = `
+                    <div>Текущее время: ${status.debug_info.current_time}</div>
+                    <div>Время активации: ${status.debug_info.target_time}</div>
+                    <div>Кнопка активна: ${status.debug_info.is_active ? 'ДА' : 'НЕТ'}</div>
+                    <div>Запись открыта: ${status.is_registration_open ? 'ДА' : 'НЕТ'}</div>
+                `;
+            }
 
             if (status.is_blocked) {
                 recordButton.disabled = true;
