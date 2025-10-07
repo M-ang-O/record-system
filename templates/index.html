@@ -9,14 +9,52 @@
 <body>
     <div class="container">
         <header>
+            <div class="user-info">
+                <span>Вы вошли как: <strong>{{ username }}</strong></span>
+                {% if is_admin %}
+                <span class="admin-badge">👑 АДМИН</span>
+                {% endif %}
+                <a href="/logout" class="logout-btn">Выйти</a>
+            </div>
+
             <h1>Система записи для группы</h1>
-            <p class="description">Запись открывается ежедневно в 18:00</p>
+            <p class="description">Запись открывается ежедневно в <span id="activationTime">18:00</span></p>
+
             <div class="share-link">
                 <strong>Поделитесь ссылкой с одногруппниками:</strong>
-                <div id="shareLink">{{ request.url }}</div>
+                <div id="shareLink">{{ request.url_root }}</div>
                 <button onclick="copyLink()" class="copy-btn">Копировать ссылку</button>
             </div>
         </header>
+
+        <!-- Админ панель -->
+        {% if is_admin %}
+        <div class="admin-panel">
+            <h2>👑 Панель администратора</h2>
+
+            <div class="admin-controls">
+                <div class="control-group">
+                    <label>Время открытия записи:</label>
+                    <input type="number" id="adminHour" min="0" max="23" value="18" class="time-input">
+                    <span>:</span>
+                    <input type="number" id="adminMinute" min="0" max="59" value="0" class="time-input">
+                    <button onclick="updateSettings()" class="save-btn">Сохранить время</button>
+                </div>
+
+                <div class="control-group">
+                    <label>Статус записи:</label>
+                    <button id="toggleRegistration" onclick="toggleRegistration()" class="toggle-btn open">
+                        Запись открыта
+                    </button>
+                </div>
+
+                <div class="control-group">
+                    <button onclick="resetAllData()" class="danger-btn">🗑️ Сбросить все данные</button>
+                    <button onclick="showUserManagement()" class="manage-btn">👥 Управление пользователями</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <div class="button-section">
             <button id="recordButton" class="record-button" disabled>ЗАПИСАТЬСЯ</button>
@@ -39,21 +77,28 @@
                         <th class="position">№</th>
                         <th class="user-name">Имя пользователя</th>
                         <th class="record-time">Время записи</th>
+                        {% if is_admin %}
+                        <th class="actions">Действия</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody id="tableBody">
                     <tr>
-                        <td colspan="3" class="empty-table">Загрузка...</td>
+                        <td colspan="{% if is_admin %}4{% else %}3{% endif %}" class="empty-table">Загрузка...</td>
                     </tr>
                 </tbody>
             </table>
         </div>
+    </div>
 
-        <!-- Админ панель (для тестирования) -->
-        <div class="admin-panel">
-            <h3>Админ панель</h3>
-            <input type="password" id="resetPassword" placeholder="Пароль для сброса">
-            <button onclick="resetData()" class="reset-btn">Сбросить данные</button>
+    <!-- Модальное окно управления пользователями -->
+    <div id="userManagementModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeUserManagement()">&times;</span>
+            <h2>👥 Управление пользователями</h2>
+            <div id="usersList" class="users-list">
+                <!-- Список пользователей будет здесь -->
+            </div>
         </div>
     </div>
 
@@ -67,6 +112,7 @@
         const tableBody = document.getElementById('tableBody');
         const userCountElement = document.getElementById('userCount');
         const notification = document.getElementById('notification');
+        const activationTimeElement = document.getElementById('activationTime');
 
         // Базовый URL API
         const API_BASE = '';
@@ -96,6 +142,10 @@
         async function getStatus() {
             try {
                 const response = await fetch(`${API_BASE}/api/status`);
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return null;
+                }
                 return await response.json();
             } catch (error) {
                 console.error('Ошибка получения статуса:', error);
@@ -143,28 +193,44 @@
             const status = await getStatus();
             if (!status) return;
 
-            if (status.is_active) {
+            // Обновляем время активации в заголовке
+            activationTimeElement.textContent =
+                `${String(status.activation_time).padStart(2, '0')}:${String(status.activation_minute).padStart(2, '0')}`;
+
+            if (status.is_blocked) {
+                recordButton.disabled = true;
+                recordButton.textContent = 'АККАУНТ ЗАБЛОКИРОВАН';
+                timerElement.textContent = 'Ваш аккаунт заблокирован администратором';
+                timerElement.style.color = '#e74c3c';
+                return;
+            }
+
+            if (status.is_active && status.is_registration_open) {
                 recordButton.disabled = false;
                 recordButton.classList.add('pulse');
+                recordButton.textContent = 'ЗАПИСАТЬСЯ';
                 timerElement.textContent = 'Запись открыта!';
                 statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
                 statusElement.style.color = '#2ecc71';
             } else {
                 recordButton.disabled = true;
                 recordButton.classList.remove('pulse');
+                recordButton.textContent = 'ЗАПИСАТЬСЯ';
 
-                const hours = Math.floor(status.time_until_active / 3600);
-                const minutes = Math.floor((status.time_until_active % 3600) / 60);
-                const seconds = status.time_until_active % 60;
+                if (!status.is_registration_open) {
+                    timerElement.textContent = 'Запись временно закрыта администратором';
+                    timerElement.style.color = '#e74c3c';
+                } else {
+                    const hours = Math.floor(status.time_until_active / 3600);
+                    const minutes = Math.floor((status.time_until_active % 3600) / 60);
+                    const seconds = status.time_until_active % 60;
 
-                timerElement.textContent = `До открытия записи: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    timerElement.textContent = `До открытия записи: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    timerElement.style.color = hours === 0 && minutes < 10 ? '#ffcc00' : 'white';
+                }
+
                 statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
                 statusElement.style.color = 'white';
-
-                // Если осталось менее 10 минут, меняем цвет таймера
-                if (hours === 0 && minutes < 10) {
-                    timerElement.style.color = '#ffcc00';
-                }
             }
         }
 
@@ -176,7 +242,8 @@
             userCountElement.textContent = `Всего: ${users.length}`;
 
             if (users.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="3" class="empty-table">Пока никто не записался</td></tr>';
+                const colspan = {{ 4 if is_admin else 3 }};
+                tableBody.innerHTML = `<tr><td colspan="${colspan}" class="empty-table">Пока никто не записался</td></tr>`;
                 return;
             }
 
@@ -200,6 +267,20 @@
                 row.appendChild(nameCell);
                 row.appendChild(timeCell);
 
+                {% if is_admin %}
+                const actionsCell = document.createElement('td');
+                actionsCell.className = 'actions';
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.textContent = '🗑️';
+                deleteBtn.title = 'Удалить запись';
+                deleteBtn.onclick = () => deleteRecord(user.id);
+
+                actionsCell.appendChild(deleteBtn);
+                row.appendChild(actionsCell);
+                {% endif %}
+
                 tableBody.appendChild(row);
             });
         }
@@ -208,7 +289,7 @@
         async function handleRecord() {
             if (recordButton.disabled) return;
 
-            const userName = prompt('Введите ваше имя:');
+            const userName = prompt('Введите ваше имя для записи:');
 
             if (!userName || userName.trim() === '') {
                 alert('Имя не может быть пустым!');
@@ -242,30 +323,163 @@
             showNotification('Данные обновлены!');
         }
 
-        // Функция для сброса данных (админ)
-        async function resetData() {
-            const password = document.getElementById('resetPassword').value;
-            if (!password) {
-                alert('Введите пароль');
-                return;
-            }
+        // Админ функции
+        async function updateSettings() {
+            const hour = parseInt(document.getElementById('adminHour').value);
+            const minute = parseInt(document.getElementById('adminMinute').value);
 
             try {
-                const response = await fetch(`${API_BASE}/api/reset`, {
+                const response = await fetch(`${API_BASE}/api/admin/settings`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ password })
+                    body: JSON.stringify({
+                        activation_hour: hour,
+                        activation_minute: minute
+                    })
                 });
 
-                if (!response.ok) {
-                    throw new Error('Неверный пароль');
+                if (!response.ok) throw new Error('Ошибка сохранения настроек');
+
+                showNotification('Настройки сохранены!');
+                await updateTimer();
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        async function toggleRegistration() {
+            const button = document.getElementById('toggleRegistration');
+            const isCurrentlyOpen = button.classList.contains('open');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/settings`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        is_registration_open: !isCurrentlyOpen
+                    })
+                });
+
+                if (!response.ok) throw new Error('Ошибка изменения статуса записи');
+
+                if (isCurrentlyOpen) {
+                    button.classList.remove('open');
+                    button.classList.add('closed');
+                    button.textContent = 'Запись закрыта';
+                } else {
+                    button.classList.remove('closed');
+                    button.classList.add('open');
+                    button.textContent = 'Запись открыта';
                 }
 
-                showNotification('Данные сброшены!');
-                document.getElementById('resetPassword').value = '';
-                await refreshData();
+                showNotification(`Запись ${isCurrentlyOpen ? 'закрыта' : 'открыта'}!`);
+                await updateTimer();
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        async function deleteRecord(recordId) {
+            if (!confirm('Вы уверены, что хотите удалить эту запись?')) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/records/${recordId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) throw new Error('Ошибка удаления записи');
+
+                showNotification('Запись удалена!');
+                await updateTable();
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        async function resetAllData() {
+            if (!confirm('ВНИМАНИЕ! Вы уверены, что хотите сбросить ВСЕ данные? Это действие нельзя отменить.')) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/reset`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('Ошибка сброса данных');
+
+                showNotification('Все данные сброшены!');
+                await updateTable();
+                await updateTimer();
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        async function showUserManagement() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/users`);
+                if (!response.ok) throw new Error('Ошибка загрузки пользователей');
+
+                const users = await response.json();
+                const modal = document.getElementById('userManagementModal');
+                const usersList = document.getElementById('usersList');
+
+                usersList.innerHTML = users.map(user => `
+                    <div class="user-item ${user.is_blocked ? 'blocked' : ''}">
+                        <div class="user-info">
+                            <strong>${user.username}</strong>
+                            <span>Записей: ${user.records_count}</span>
+                            <span class="status ${user.is_blocked ? 'blocked' : 'active'}">
+                                ${user.is_blocked ? '🔴 Заблокирован' : '🟢 Активен'}
+                            </span>
+                        </div>
+                        <div class="user-actions">
+                            ${user.is_blocked ?
+                                `<button onclick="unblockUser('${user.username}')" class="unblock-btn">Разблокировать</button>` :
+                                `<button onclick="blockUser('${user.username}')" class="block-btn">Заблокировать</button>`
+                            }
+                        </div>
+                    </div>
+                `).join('');
+
+                modal.style.display = 'block';
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        function closeUserManagement() {
+            document.getElementById('userManagementModal').style.display = 'none';
+        }
+
+        async function blockUser(username) {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/users/${username}/block`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('Ошибка блокировки пользователя');
+
+                showNotification(`Пользователь ${username} заблокирован!`);
+                closeUserManagement();
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        async function unblockUser(username) {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/users/${username}/unblock`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('Ошибка разблокировки пользователя');
+
+                showNotification(`Пользователь ${username} разблокирован!`);
+                closeUserManagement();
             } catch (error) {
                 showNotification(error.message, true);
             }
@@ -279,6 +493,29 @@
             await updateTable();
             await updateTimer();
 
+            // Загружаем настройки для админа
+            {% if is_admin %}
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/settings`);
+                if (response.ok) {
+                    const settings = await response.json();
+                    document.getElementById('adminHour').value = settings.activation_hour;
+                    document.getElementById('adminMinute').value = settings.activation_minute;
+
+                    const toggleBtn = document.getElementById('toggleRegistration');
+                    if (settings.is_registration_open) {
+                        toggleBtn.classList.add('open');
+                        toggleBtn.textContent = 'Запись открыта';
+                    } else {
+                        toggleBtn.classList.add('closed');
+                        toggleBtn.textContent = 'Запись закрыта';
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки настроек:', error);
+            }
+            {% endif %}
+
             // Обновляем таймер каждую секунду
             setInterval(updateTimer, 1000);
 
@@ -288,6 +525,14 @@
 
         // Запускаем приложение
         init();
+
+        // Закрытие модального окна при клике вне его
+        window.onclick = function(event) {
+            const modal = document.getElementById('userManagementModal');
+            if (event.target === modal) {
+                closeUserManagement();
+            }
+        }
     </script>
 </body>
 </html>
