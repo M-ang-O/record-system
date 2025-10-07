@@ -490,6 +490,59 @@
                 const modal = document.getElementById('userManagementModal');
                 const usersList = document.getElementById('usersList');
 
+                let html = '';
+                users.forEach(user => {
+                    html += `
+                        <div class="user-item ${user.is_blocked ? 'blocked' : ''}" data-username="${user.username}">
+                            <div class="user-info">
+                                <strong>${user.username}</strong>
+                                <span>Записей: ${user.records_count}</span>
+                                <span class="status ${user.is_blocked ? 'blocked' : 'active'}">
+                                    ${user.is_blocked ? '🔴 Заблокирован' : '🟢 Активен'}
+                                </span>
+                            </div>
+                            <div class="user-actions">
+                                <button class="user-action-btn ${user.is_blocked ? 'unblock-btn' : 'block-btn'}"
+                                        data-action="${user.is_blocked ? 'unblock' : 'block'}"
+                                        data-username="${user.username}">
+                                    ${user.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                usersList.innerHTML = html;
+
+                // Назначаем обработчики для всех кнопок
+                document.querySelectorAll('.user-action-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const username = this.getAttribute('data-username');
+                        const action = this.getAttribute('data-action');
+
+                        if (action === 'block') {
+                            blockUser(username);
+                        } else {
+                            unblockUser(username);
+                        }
+                    });
+                });
+
+                modal.style.display = 'block';
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        async function showUserManagement() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/users`);
+                if (!response.ok) throw new Error('Ошибка загрузки пользователей');
+
+                const users = await response.json();
+                const modal = document.getElementById('userManagementModal');
+                const usersList = document.getElementById('usersList');
+
                 usersList.innerHTML = '';
 
                 users.forEach(user => {
@@ -592,17 +645,6 @@
             }
         }
 
-        async function debugUsers() {
-            try {
-                const response = await fetch(`${API_BASE}/api/admin/users`);
-                const users = await response.json();
-                console.log('Users from API:', users);
-                return users;
-            } catch (error) {
-                console.error('Error fetching users:', error);
-                return [];
-            }
-        }
 
         // Назначаем обработчик события
         recordButton.addEventListener('click', handleRecord);
