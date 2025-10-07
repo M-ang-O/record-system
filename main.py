@@ -5,6 +5,7 @@ import os
 import hashlib
 from threading import Lock
 import secrets
+import pytz
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -15,7 +16,8 @@ blocked_users = []
 admin_settings = {
     'activation_hour': 18,
     'activation_minute': 0,
-    'is_registration_open': True
+    'is_registration_open': True,
+    'auto_registration': True  # Автоматическая запись имени пользователя
 }
 user_accounts = {
     'admin': {
@@ -27,66 +29,42 @@ user_accounts = {
 data_lock = Lock()
 
 
-def get_activation_time():
-    """Возвращает время следующей активации кнопки"""
-    now = datetime.now()
+def get_moscow_time():
+    """Возвращает текущее время в московском часовом поясе"""
+    moscow_tz = pytz.timezone('Europe/Moscow')
+    return datetime.now(moscow_tz)
 
-    # Создаем время активации на сегодня
-    activation_time = datetime(
-        now.year,
-        now.month,
-        now.day,
-        admin_settings['activation_hour'],
-        admin_settings['activation_minute'],
-        0
+
+def get_activation_time():
+    """Возвращает время следующей активации кнопки в московском времени"""
+    moscow_now = get_moscow_time()
+
+    # Создаем время активации на сегодня в Москве
+    activation_time = moscow_now.replace(
+        hour=admin_settings['activation_hour'],
+        minute=admin_settings['activation_minute'],
+        second=0,
+        microsecond=0
     )
 
     # Если уже прошло время активации сегодня, устанавливаем на завтра
-    if now > activation_time:
+    if moscow_now > activation_time:
         activation_time += timedelta(days=1)
 
-    print(f"Activation time calculated: {activation_time}")
     return activation_time
 
 
 def is_button_active():
-    """Проверяет, активна ли кнопка в текущий момент"""
+    """Проверяет, активна ли кнопка в текущий момент по московскому времени"""
     if not admin_settings['is_registration_open']:
-        print("Registration is closed by admin")
         return False
 
-    now = datetime.now()
+    moscow_now = get_moscow_time()
     activation_time = get_activation_time()
 
-    print(f"Checking button activity: now={now.time()}, activation={activation_time.time()}")
+    # Кнопка активна, если текущее московское время >= времени активации
+    return moscow_now >= activation_time
 
-    # Сравниваем только время (часы и минуты), игнорируем дату
-    current_time = now.time()
-    target_time = activation_time.time()
-
-    # Кнопка активна, если текущее время >= времени активации
-    is_active = current_time >= target_time
-
-    print(f"Button active: {is_active}")
-    return is_active
-
-
-@app.route('/api/debug/force_activate', methods=['POST'])
-def force_activate():
-    """Принудительно активировать кнопку для тестирования"""
-    if not is_logged_in():
-        return jsonify({'error': 'Не авторизован'}), 401
-
-    # Временно меняем время активации на текущее
-    now = datetime.now()
-    with data_lock:
-        admin_settings['activation_hour'] = now.hour
-        admin_settings['activation_minute'] = now.minute
-
-    return jsonify({
-        'message': 'Кнопка принудительно активирована',
-        'new_activation_time': f"{now.hour}:{now.minute}"
-    })
 
 def is_logged_in():
     return 'username' in session
@@ -179,15 +157,6 @@ def add_user():
     if not is_logged_in():
         return jsonify({'error': 'Не авторизован'}), 401
 
-    data = request.get_json()
-
-    if not data or 'name' not in data:
-        return jsonify({'error': 'Имя обязательно'}), 400
-
-    name = data['name'].strip()
-    if not name:
-        return jsonify({'error': 'Имя не может быть пустым'}), 400
-
     # Проверяем, заблокирован ли пользователь
     if session['username'] in blocked_users:
         return jsonify({'error': 'Ваш аккаунт заблокирован'}), 403
@@ -196,15 +165,18 @@ def add_user():
     if not is_button_active():
         return jsonify({'error': 'Запись еще не открыта'}), 403
 
-    # Проверяем, не записывался ли уже пользователь с таким именем
+    # Автоматически используем имя пользователя из сессии
+    name = session['username']
+
+    # Проверяем, не записывался ли уже пользователь
     with data_lock:
         if any(user['name'].lower() == name.lower() for user in users_data):
-            return jsonify({'error': 'Пользователь с таким именем уже записан'}), 409
+            return jsonify({'error': 'Вы уже записаны'}), 409
 
         user_record = {
             'id': len(users_data) + 1,
             'name': name,
-            'time': datetime.now().isoformat(),
+            'time': get_moscow_time().isoformat(),
             'registered_by': session['username']
         }
 
@@ -218,36 +190,23 @@ def get_status():
     if not is_logged_in():
         return jsonify({'error': 'Не авторизован'}), 401
 
-    now = datetime.now()
+    moscow_now = get_moscow_time()
     activation_time = get_activation_time()
-    time_diff = activation_time - now
-
-    # Отладочная информация
-    print(f"=== DEBUG TIME INFO ===")
-    print(f"Server time: {now}")
-    print(f"Activation time: {activation_time}")
-    print(f"Time difference: {time_diff}")
-    print(f"Is button active: {is_button_active()}")
-    print(f"Registration open: {admin_settings['is_registration_open']}")
-    print(f"Activation hour: {admin_settings['activation_hour']}:{admin_settings['activation_minute']}")
+    time_diff = activation_time - moscow_now
 
     status = {
         'is_active': is_button_active(),
         'time_until_active': max(0, int(time_diff.total_seconds())),
-        'activation_time': activation_time.isoformat(),
+        'activation_time': activation_time.strftime('%H:%M'),
         'total_users': len(users_data),
         'is_registration_open': admin_settings['is_registration_open'],
         'current_user': session['username'],
         'is_blocked': session['username'] in blocked_users,
-        # Добавляем отладочную информацию
-        'debug': {
-            'server_time': now.isoformat(),
-            'activation_time_set': f"{admin_settings['activation_hour']}:{admin_settings['activation_minute']}",
-            'timezone': str(now.tzinfo)
-        }
+        'moscow_time': moscow_now.strftime('%H:%M:%S')
     }
 
     return jsonify(status)
+
 
 # Admin API Routes
 @app.route('/api/admin/settings', methods=['GET'])
@@ -272,6 +231,8 @@ def update_admin_settings():
             admin_settings['activation_minute'] = int(data['activation_minute'])
         if 'is_registration_open' in data:
             admin_settings['is_registration_open'] = bool(data['is_registration_open'])
+        if 'auto_registration' in data:
+            admin_settings['auto_registration'] = bool(data['auto_registration'])
 
     return jsonify(admin_settings)
 
@@ -348,17 +309,25 @@ def reset_all_data():
 
     return jsonify({'message': 'Все данные сброшены'})
 
-@app.route('/api/debug/time')
-def debug_time():
-    """Показать текущее время сервера"""
-    now = datetime.now()
+
+@app.route('/api/admin/force_activate', methods=['POST'])
+def force_activate():
+    """Принудительно активировать кнопку для тестирования (только админ)"""
+    if not is_logged_in() or not is_admin():
+        return jsonify({'error': 'Доступ запрещен'}), 403
+
+    # Временно меняем время активации на текущее московское время
+    moscow_now = get_moscow_time()
+    with data_lock:
+        admin_settings['activation_hour'] = moscow_now.hour
+        admin_settings['activation_minute'] = max(0,
+                                                  moscow_now.minute - 1)  # Минуту назад чтобы гарантировать активацию
+
     return jsonify({
-        'server_time': now.isoformat(),
-        'server_time_local': now.strftime('%Y-%m-%d %H:%M:%S'),
-        'timezone': str(now.tzinfo),
-        'activation_time_set': f"{admin_settings['activation_hour']}:{admin_settings['activation_minute']}",
-        'is_button_active': is_button_active()
+        'message': 'Кнопка принудительно активирована',
+        'new_activation_time': f"{moscow_now.hour}:{moscow_now.minute}"
     })
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

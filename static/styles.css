@@ -66,7 +66,13 @@ h1 {
 .description {
     font-size: 1.2rem;
     opacity: 0.9;
-    margin-bottom: 10px;
+    margin-bottom: 5px;
+}
+
+.moscow-time {
+    font-size: 1rem;
+    opacity: 0.8;
+    margin-bottom: 15px;
 }
 
 .share-link {
@@ -231,7 +237,7 @@ h1 {
     text-align: center;
 }
 
-.save-btn, .toggle-btn, .manage-btn, .danger-btn {
+.save-btn, .toggle-btn, .manage-btn, .danger-btn, .debug-btn {
     padding: 8px 15px;
     border: none;
     border-radius: 5px;
@@ -265,7 +271,12 @@ h1 {
     color: white;
 }
 
-.save-btn:hover, .toggle-btn:hover, .manage-btn:hover {
+.debug-btn {
+    background: #9b59b6;
+    color: white;
+}
+
+.save-btn:hover, .toggle-btn:hover, .manage-btn:hover, .debug-btn:hover {
     transform: translateY(-2px);
 }
 
@@ -599,44 +610,5 @@ tr:last-child td {
         flex-direction: column;
         gap: 10px;
         text-align: center;
-    }
-    /* Стили для отладочной информации */
-    .debug-info {
-        background: rgba(0, 0, 0, 0.3);
-        padding: 15px;
-        border-radius: 8px;
-        margin: 10px 0;
-        font-size: 0.9rem;
-    }
-
-    .debug-info h3 {
-        margin-bottom: 10px;
-        color: #ffcc00;
-    }
-
-    .debug-info pre {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 10px;
-        border-radius: 5px;
-        overflow-x: auto;
-        white-space: pre-wrap;
-        font-family: 'Courier New', monospace;
-        font-size: 0.8rem;
-    }
-
-    .debug-btn {
-        background: #9b59b6;
-        color: white;
-        border: none;
-        padding: 8px 15px;
-        border-radius: 5px;
-        cursor: pointer;
-        margin-top: 10px;
-        font-size: 0.9rem;
-    }
-
-    .debug-btn:hover {
-        background: #8e44ad;
-        transform: translateY(-1px);
     }
 }
