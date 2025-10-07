@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Система записи для группы</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Система записи для группы</h1>
+            <p class="description">Запись открывается ежедневно в 18:00</p>
+            <div class="share-link">
+                <strong>Поделитесь ссылкой с одногруппниками:</strong>
+                <div id="shareLink">{{ request.url }}</div>
+                <button onclick="copyLink()" class="copy-btn">Копировать ссылку</button>
+            </div>
+        </header>
+
+        <div class="button-section">
+            <button id="recordButton" class="record-button" disabled>ЗАПИСАТЬСЯ</button>
+        </div>
+
+        <div id="timer" class="timer"></div>
+        <div id="status" class="status"></div>
+
+        <div class="table-section">
+            <div class="table-header">
+                <h2>Список записавшихся</h2>
+                <div class="table-info">
+                    <span id="userCount">Всего: 0</span>
+                    <button onclick="refreshData()" class="refresh-btn">🔄 Обновить</button>
+                </div>
+            </div>
+            <table id="usersTable">
+                <thead>
+                    <tr>
+                        <th class="position">№</th>
+                        <th class="user-name">Имя пользователя</th>
+                        <th class="record-time">Время записи</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr>
+                        <td colspan="3" class="empty-table">Загрузка...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Админ панель (для тестирования) -->
+        <div class="admin-panel">
+            <h3>Админ панель</h3>
+            <input type="password" id="resetPassword" placeholder="Пароль для сброса">
+            <button onclick="resetData()" class="reset-btn">Сбросить данные</button>
+        </div>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <script>
+        // Элементы DOM
+        const recordButton = document.getElementById('recordButton');
+        const timerElement = document.getElementById('timer');
+        const statusElement = document.getElementById('status');
+        const tableBody = document.getElementById('tableBody');
+        const userCountElement = document.getElementById('userCount');
+        const notification = document.getElementById('notification');
+
+        // Базовый URL API
+        const API_BASE = '';
+
+        // Функция для показа уведомления
+        function showNotification(message, isError = false) {
+            notification.textContent = message;
+            notification.className = 'notification show';
+            if (isError) {
+                notification.classList.add('error');
+            }
+
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        // Функция для копирования ссылки
+        function copyLink() {
+            const link = document.getElementById('shareLink').textContent;
+            navigator.clipboard.writeText(link).then(() => {
+                showNotification('Ссылка скопирована!');
+            });
+        }
+
+        // Функция для получения статуса
+        async function getStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/status`);
+                return await response.json();
+            } catch (error) {
+                console.error('Ошибка получения статуса:', error);
+                return null;
+            }
+        }
+
+        // Функция для получения списка пользователей
+        async function getUsers() {
+            try {
+                const response = await fetch(`${API_BASE}/api/users`);
+                if (!response.ok) throw new Error('Ошибка загрузки данных');
+                return await response.json();
+            } catch (error) {
+                console.error('Ошибка получения пользователей:', error);
+                showNotification('Ошибка загрузки данных', true);
+                return [];
+            }
+        }
+
+        // Функция для добавления пользователя
+        async function addUser(name) {
+            try {
+                const response = await fetch(`${API_BASE}/api/users`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ name })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Ошибка сервера');
+                }
+
+                return await response.json();
+            } catch (error) {
+                throw error;
+            }
+        }
+
+        // Функция для обновления таймера
+        async function updateTimer() {
+            const status = await getStatus();
+            if (!status) return;
+
+            if (status.is_active) {
+                recordButton.disabled = false;
+                recordButton.classList.add('pulse');
+                timerElement.textContent = 'Запись открыта!';
+                statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
+                statusElement.style.color = '#2ecc71';
+            } else {
+                recordButton.disabled = true;
+                recordButton.classList.remove('pulse');
+
+                const hours = Math.floor(status.time_until_active / 3600);
+                const minutes = Math.floor((status.time_until_active % 3600) / 60);
+                const seconds = status.time_until_active % 60;
+
+                timerElement.textContent = `До открытия записи: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
+                statusElement.style.color = 'white';
+
+                // Если осталось менее 10 минут, меняем цвет таймера
+                if (hours === 0 && minutes < 10) {
+                    timerElement.style.color = '#ffcc00';
+                }
+            }
+        }
+
+        // Функция для обновления таблицы
+        async function updateTable() {
+            const users = await getUsers();
+
+            tableBody.innerHTML = '';
+            userCountElement.textContent = `Всего: ${users.length}`;
+
+            if (users.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="3" class="empty-table">Пока никто не записался</td></tr>';
+                return;
+            }
+
+            // Отображаем пользователей в таблице
+            users.forEach((user, index) => {
+                const row = document.createElement('tr');
+
+                const positionCell = document.createElement('td');
+                positionCell.className = 'position';
+                positionCell.textContent = index + 1;
+
+                const nameCell = document.createElement('td');
+                nameCell.className = 'user-name';
+                nameCell.textContent = user.name;
+
+                const timeCell = document.createElement('td');
+                timeCell.className = 'record-time';
+                timeCell.textContent = new Date(user.time).toLocaleTimeString();
+
+                row.appendChild(positionCell);
+                row.appendChild(nameCell);
+                row.appendChild(timeCell);
+
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Функция для обработки нажатия на кнопку
+        async function handleRecord() {
+            if (recordButton.disabled) return;
+
+            const userName = prompt('Введите ваше имя:');
+
+            if (!userName || userName.trim() === '') {
+                alert('Имя не может быть пустым!');
+                return;
+            }
+
+            try {
+                recordButton.disabled = true;
+                recordButton.textContent = 'ЗАПИСЬ...';
+
+                const result = await addUser(userName.trim());
+
+                showNotification(`Вы успешно записались под номером ${result.id}!`);
+
+                // Обновляем данные
+                await updateTable();
+                await updateTimer();
+
+            } catch (error) {
+                showNotification(error.message, true);
+            } finally {
+                recordButton.disabled = false;
+                recordButton.textContent = 'ЗАПИСАТЬСЯ';
+            }
+        }
+
+        // Функция для обновления данных
+        async function refreshData() {
+            await updateTable();
+            await updateTimer();
+            showNotification('Данные обновлены!');
+        }
+
+        // Функция для сброса данных (админ)
+        async function resetData() {
+            const password = document.getElementById('resetPassword').value;
+            if (!password) {
+                alert('Введите пароль');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/reset`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Неверный пароль');
+                }
+
+                showNotification('Данные сброшены!');
+                document.getElementById('resetPassword').value = '';
+                await refreshData();
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        // Назначаем обработчик события
+        recordButton.addEventListener('click', handleRecord);
+
+        // Инициализация
+        async function init() {
+            await updateTable();
+            await updateTimer();
+
+            // Обновляем таймер каждую секунду
+            setInterval(updateTimer, 1000);
+
+            // Обновляем таблицу каждые 10 секунд
+            setInterval(updateTable, 10000);
+        }
+
+        // Запускаем приложение
+        init();
+    </script>
+</body>
+</html>
