@@ -490,8 +490,13 @@
                 const modal = document.getElementById('userManagementModal');
                 const usersList = document.getElementById('usersList');
 
-                usersList.innerHTML = users.map(user => `
-                    <div class="user-item ${user.is_blocked ? 'blocked' : ''}">
+                usersList.innerHTML = '';
+
+                users.forEach(user => {
+                    const userItem = document.createElement('div');
+                    userItem.className = `user-item ${user.is_blocked ? 'blocked' : ''}`;
+
+                    userItem.innerHTML = `
                         <div class="user-info">
                             <strong>${user.username}</strong>
                             <span>Записей: ${user.records_count}</span>
@@ -501,12 +506,22 @@
                         </div>
                         <div class="user-actions">
                             ${user.is_blocked ?
-                                `<button onclick="unblockUser('${user.username}')" class="unblock-btn">Разблокировать</button>` :
-                                `<button onclick="blockUser('${user.username}')" class="block-btn">Заблокировать</button>`
+                                '<button class="unblock-btn">Разблокировать</button>' :
+                                '<button class="block-btn">Заблокировать</button>'
                             }
                         </div>
-                    </div>
-                `).join('');
+                    `;
+
+                    // Назначаем обработчики событий после создания элемента
+                    const actionBtn = userItem.querySelector('.block-btn, .unblock-btn');
+                    if (user.is_blocked) {
+                        actionBtn.addEventListener('click', () => unblockUser(user.username));
+                    } else {
+                        actionBtn.addEventListener('click', () => blockUser(user.username));
+                    }
+
+                    usersList.appendChild(userItem);
+                });
 
                 modal.style.display = 'block';
             } catch (error) {
@@ -519,30 +534,44 @@
         }
 
         async function blockUser(username) {
+            if (!confirm(`Вы уверены, что хотите заблокировать пользователя ${username}?`)) return;
+
             try {
-                const response = await fetch(`${API_BASE}/api/admin/users/${username}/block`, {
+                const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(username)}/block`, {
                     method: 'POST'
                 });
 
-                if (!response.ok) throw new Error('Ошибка блокировки пользователя');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Ошибка блокировки пользователя');
+                }
 
                 showNotification(`Пользователь ${username} заблокирован!`);
                 closeUserManagement();
+                // Перезагружаем список пользователей
+                await showUserManagement();
             } catch (error) {
                 showNotification(error.message, true);
             }
         }
 
         async function unblockUser(username) {
+            if (!confirm(`Вы уверены, что хотите разблокировать пользователя ${username}?`)) return;
+
             try {
-                const response = await fetch(`${API_BASE}/api/admin/users/${username}/unblock`, {
+                const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(username)}/unblock`, {
                     method: 'POST'
                 });
 
-                if (!response.ok) throw new Error('Ошибка разблокировки пользователя');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Ошибка разблокировки пользователя');
+                }
 
                 showNotification(`Пользователь ${username} разблокирован!`);
                 closeUserManagement();
+                // Перезагружаем список пользователей
+                await showUserManagement();
             } catch (error) {
                 showNotification(error.message, true);
             }
@@ -560,6 +589,18 @@
                 await updateTimer();
             } catch (error) {
                 showNotification(error.message, true);
+            }
+        }
+
+        async function debugUsers() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/users`);
+                const users = await response.json();
+                console.log('Users from API:', users);
+                return users;
+            } catch (error) {
+                console.error('Error fetching users:', error);
+                return [];
             }
         }
 
@@ -614,6 +655,8 @@
             // Обновляем таблицу каждые 10 секунд
             setInterval(updateTable, 10000);
         }
+
+
 
         // Запускаем приложение
         init();
