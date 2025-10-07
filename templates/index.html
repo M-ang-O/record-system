@@ -63,6 +63,12 @@
         <div id="timer" class="timer"></div>
         <div id="status" class="status"></div>
 
+        <div id="debugInfo" class="debug-info" style="display: none;">
+            <h3>Отладочная информация:</h3>
+            <pre id="debugContent"></pre>
+            <button onclick="forceActivate()" class="debug-btn">Принудительно активировать</button>
+        </div>
+
         <div class="table-section">
             <div class="table-header">
                 <h2>Список записавшихся</h2>
@@ -188,14 +194,32 @@
             }
         }
 
+        // Функция для принудительной активации
+        async function forceActivate() {
+            try {
+                const response = await fetch(`${API_BASE}/api/debug/force_activate`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('Ошибка активации');
+
+                showNotification('Кнопка принудительно активирована!');
+                await updateTimer();
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
         // Функция для обновления таймера
         async function updateTimer() {
             const status = await getStatus();
             if (!status) return;
 
-            // Обновляем время активации в заголовке
-            activationTimeElement.textContent =
-                `${String(status.activation_time).padStart(2, '0')}:${String(status.activation_minute).padStart(2, '0')}`;
+            // Показываем отладочную информацию
+            if (status.debug) {
+                document.getElementById('debugInfo').style.display = 'block';
+                document.getElementById('debugContent').textContent = JSON.stringify(status.debug, null, 2);
+            }
 
             if (status.is_blocked) {
                 recordButton.disabled = true;

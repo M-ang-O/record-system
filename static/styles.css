@@ -600,4 +600,43 @@ tr:last-child td {
         gap: 10px;
         text-align: center;
     }
+    /* Стили для отладочной информации */
+    .debug-info {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 15px;
+        border-radius: 8px;
+        margin: 10px 0;
+        font-size: 0.9rem;
+    }
+
+    .debug-info h3 {
+        margin-bottom: 10px;
+        color: #ffcc00;
+    }
+
+    .debug-info pre {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 10px;
+        border-radius: 5px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        font-family: 'Courier New', monospace;
+        font-size: 0.8rem;
+    }
+
+    .debug-btn {
+        background: #9b59b6;
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        margin-top: 10px;
+        font-size: 0.9rem;
+    }
+
+    .debug-btn:hover {
+        background: #8e44ad;
+        transform: translateY(-1px);
+    }
 }

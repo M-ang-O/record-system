@@ -30,28 +30,63 @@ data_lock = Lock()
 def get_activation_time():
     """Возвращает время следующей активации кнопки"""
     now = datetime.now()
-    activation_time = now.replace(
-        hour=admin_settings['activation_hour'],
-        minute=admin_settings['activation_minute'],
-        second=0,
-        microsecond=0
+
+    # Создаем время активации на сегодня
+    activation_time = datetime(
+        now.year,
+        now.month,
+        now.day,
+        admin_settings['activation_hour'],
+        admin_settings['activation_minute'],
+        0
     )
 
+    # Если уже прошло время активации сегодня, устанавливаем на завтра
     if now > activation_time:
         activation_time += timedelta(days=1)
 
+    print(f"Activation time calculated: {activation_time}")
     return activation_time
 
 
 def is_button_active():
     """Проверяет, активна ли кнопка в текущий момент"""
     if not admin_settings['is_registration_open']:
+        print("Registration is closed by admin")
         return False
 
     now = datetime.now()
     activation_time = get_activation_time()
-    return now >= activation_time
 
+    print(f"Checking button activity: now={now.time()}, activation={activation_time.time()}")
+
+    # Сравниваем только время (часы и минуты), игнорируем дату
+    current_time = now.time()
+    target_time = activation_time.time()
+
+    # Кнопка активна, если текущее время >= времени активации
+    is_active = current_time >= target_time
+
+    print(f"Button active: {is_active}")
+    return is_active
+
+
+@app.route('/api/debug/force_activate', methods=['POST'])
+def force_activate():
+    """Принудительно активировать кнопку для тестирования"""
+    if not is_logged_in():
+        return jsonify({'error': 'Не авторизован'}), 401
+
+    # Временно меняем время активации на текущее
+    now = datetime.now()
+    with data_lock:
+        admin_settings['activation_hour'] = now.hour
+        admin_settings['activation_minute'] = now.minute
+
+    return jsonify({
+        'message': 'Кнопка принудительно активирована',
+        'new_activation_time': f"{now.hour}:{now.minute}"
+    })
 
 def is_logged_in():
     return 'username' in session
@@ -187,6 +222,15 @@ def get_status():
     activation_time = get_activation_time()
     time_diff = activation_time - now
 
+    # Отладочная информация
+    print(f"=== DEBUG TIME INFO ===")
+    print(f"Server time: {now}")
+    print(f"Activation time: {activation_time}")
+    print(f"Time difference: {time_diff}")
+    print(f"Is button active: {is_button_active()}")
+    print(f"Registration open: {admin_settings['is_registration_open']}")
+    print(f"Activation hour: {admin_settings['activation_hour']}:{admin_settings['activation_minute']}")
+
     status = {
         'is_active': is_button_active(),
         'time_until_active': max(0, int(time_diff.total_seconds())),
@@ -194,11 +238,16 @@ def get_status():
         'total_users': len(users_data),
         'is_registration_open': admin_settings['is_registration_open'],
         'current_user': session['username'],
-        'is_blocked': session['username'] in blocked_users
+        'is_blocked': session['username'] in blocked_users,
+        # Добавляем отладочную информацию
+        'debug': {
+            'server_time': now.isoformat(),
+            'activation_time_set': f"{admin_settings['activation_hour']}:{admin_settings['activation_minute']}",
+            'timezone': str(now.tzinfo)
+        }
     }
 
     return jsonify(status)
-
 
 # Admin API Routes
 @app.route('/api/admin/settings', methods=['GET'])
@@ -299,6 +348,17 @@ def reset_all_data():
 
     return jsonify({'message': 'Все данные сброшены'})
 
+@app.route('/api/debug/time')
+def debug_time():
+    """Показать текущее время сервера"""
+    now = datetime.now()
+    return jsonify({
+        'server_time': now.isoformat(),
+        'server_time_local': now.strftime('%Y-%m-%d %H:%M:%S'),
+        'timezone': str(now.tzinfo),
+        'activation_time_set': f"{admin_settings['activation_hour']}:{admin_settings['activation_minute']}",
+        'is_button_active': is_button_active()
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
