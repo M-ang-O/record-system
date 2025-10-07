@@ -16,7 +16,8 @@ blocked_users = []
 admin_settings = {
     'activation_hour': 18,
     'activation_minute': 0,
-    'is_registration_open': True
+    'is_registration_open': True,
+    'registration_completed': False  # Новая настройка - запись полностью завершена
 }
 user_accounts = {
     'admin': {
@@ -37,7 +38,9 @@ def get_moscow_time():
 def is_button_active():
     """Проверяет, активна ли кнопка в текущий момент по московскому времени"""
     if not admin_settings['is_registration_open']:
-        print("DEBUG: Registration is closed by admin")
+        return False
+
+    if admin_settings['registration_completed']:
         return False
 
     moscow_now = get_moscow_time()
@@ -47,14 +50,10 @@ def is_button_active():
     target_hour = admin_settings['activation_hour']
     target_minute = admin_settings['activation_minute']
 
-    print(f"DEBUG: Current Moscow time: {current_hour}:{current_minute}")
-    print(f"DEBUG: Target time: {target_hour}:{target_minute}")
-
     # Проверяем, наступило ли время активации
     is_active = (current_hour > target_hour) or \
                 (current_hour == target_hour and current_minute >= target_minute)
 
-    print(f"DEBUG: Button active: {is_active}")
     return is_active
 
 
@@ -206,14 +205,10 @@ def get_status():
         'activation_time': f"{target_hour:02d}:{target_minute:02d}",
         'total_users': len(users_data),
         'is_registration_open': admin_settings['is_registration_open'],
+        'registration_completed': admin_settings['registration_completed'],
         'current_user': session['username'],
         'is_blocked': session['username'] in blocked_users,
-        'moscow_time': moscow_now.strftime('%H:%M:%S'),
-        'debug_info': {
-            'current_time': f"{current_hour:02d}:{current_minute:02d}",
-            'target_time': f"{target_hour:02d}:{target_minute:02d}",
-            'is_active': is_button_active()
-        }
+        'moscow_time': moscow_now.strftime('%H:%M:%S')
     }
 
     return jsonify(status)
@@ -242,6 +237,8 @@ def update_admin_settings():
             admin_settings['activation_minute'] = int(data['activation_minute'])
         if 'is_registration_open' in data:
             admin_settings['is_registration_open'] = bool(data['is_registration_open'])
+        if 'registration_completed' in data:
+            admin_settings['registration_completed'] = bool(data['registration_completed'])
 
     return jsonify(admin_settings)
 
@@ -319,6 +316,31 @@ def reset_all_data():
     return jsonify({'message': 'Все данные сброшены'})
 
 
+@app.route('/api/admin/complete_registration', methods=['POST'])
+def complete_registration():
+    """Полностью завершить запись до следующего раза"""
+    if not is_logged_in() or not is_admin():
+        return jsonify({'error': 'Доступ запрещен'}), 403
+
+    with data_lock:
+        admin_settings['registration_completed'] = True
+
+    return jsonify({'message': 'Запись завершена до следующего раза'})
+
+
+@app.route('/api/admin/reopen_registration', methods=['POST'])
+def reopen_registration():
+    """Возобновить запись"""
+    if not is_logged_in() or not is_admin():
+        return jsonify({'error': 'Доступ запрещен'}), 403
+
+    with data_lock:
+        admin_settings['registration_completed'] = False
+        admin_settings['is_registration_open'] = True
+
+    return jsonify({'message': 'Запись возобновлена'})
+
+
 @app.route('/api/admin/force_activate', methods=['POST'])
 def force_activate():
     """Принудительно активировать кнопку для тестирования (только админ)"""
@@ -330,27 +352,12 @@ def force_activate():
     with data_lock:
         admin_settings['activation_hour'] = moscow_now.hour
         admin_settings['activation_minute'] = moscow_now.minute - 1 if moscow_now.minute > 0 else 59
-
-    print(
-        f"DEBUG: Force activated - setting time to {admin_settings['activation_hour']}:{admin_settings['activation_minute']}")
+        admin_settings['registration_completed'] = False
+        admin_settings['is_registration_open'] = True
 
     return jsonify({
         'message': 'Кнопка принудительно активирована!',
-        'new_activation_time': f"{admin_settings['activation_hour']}:{admin_settings['activation_minute']:02d}",
-        'current_time': moscow_now.strftime('%H:%M:%S')
-    })
-
-
-@app.route('/api/debug/time')
-def debug_time():
-    """Отладочная информация о времени"""
-    moscow_now = get_moscow_time()
-    return jsonify({
-        'moscow_time': moscow_now.strftime('%Y-%m-%d %H:%M:%S'),
-        'server_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'activation_settings': admin_settings,
-        'is_button_active': is_button_active(),
-        'is_registration_open': admin_settings['is_registration_open']
+        'new_activation_time': f"{admin_settings['activation_hour']}:{admin_settings['activation_minute']:02d}"
     })
 
 

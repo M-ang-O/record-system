@@ -26,12 +26,6 @@
                 <div id="shareLink">{{ request.url_root }}</div>
                 <button onclick="copyLink()" class="copy-btn">Копировать ссылку</button>
             </div>
-        <!-- ВРЕМЕННЫЙ БЛОК ДЛЯ ОТЛАДКИ - УДАЛИТЬ ПОСЛЕ ИСПРАВЛЕНИЯ -->
-        <div class="debug-panel" style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; margin: 10px 0;">
-            <h3>Отладка (удалить после исправления):</h3>
-            <div id="debugStatus"></div>
-            <button onclick="checkDebugTime()" class="debug-btn">Проверить время сервера</button>
-        </div>
         </header>
 
         <!-- Админ панель -->
@@ -52,6 +46,9 @@
                     <label>Статус записи:</label>
                     <button id="toggleRegistration" onclick="toggleRegistration()" class="toggle-btn open">
                         Запись открыта
+                    </button>
+                    <button id="completeRegistration" onclick="completeRegistration()" class="complete-btn">
+                        ✅ Завершить запись
                     </button>
                     <button onclick="forceActivate()" class="debug-btn">🔄 Принудительно активировать</button>
                 </div>
@@ -139,6 +136,115 @@
             }, 3000);
         }
 
+        // Функция для завершения записи
+        async function completeRegistration() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/complete_registration`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('Ошибка завершения записи');
+
+                showNotification('Запись завершена до следующего раза!');
+                await updateTimer();
+
+                // Обновляем кнопку
+                const completeBtn = document.getElementById('completeRegistration');
+                completeBtn.textContent = '🔄 Возобновить запись';
+                completeBtn.onclick = reopenRegistration;
+                completeBtn.classList.remove('complete-btn');
+                completeBtn.classList.add('reopen-btn');
+
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        // Функция для возобновления записи
+        async function reopenRegistration() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/reopen_registration`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('Ошибка возобновления записи');
+
+                showNotification('Запись возобновлена!');
+                await updateTimer();
+
+                // Обновляем кнопку
+                const reopenBtn = document.getElementById('completeRegistration');
+                reopenBtn.textContent = '✅ Завершить запись';
+                reopenBtn.onclick = completeRegistration;
+                reopenBtn.classList.remove('reopen-btn');
+                reopenBtn.classList.add('complete-btn');
+
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        }
+
+        // Обновите функцию updateTimer для учета завершенной записи
+        async function updateTimer() {
+            const status = await getStatus();
+            if (!status) return;
+
+            // Обновляем московское время
+            if (status.moscow_time) {
+                moscowTimeElement.textContent = status.moscow_time;
+            }
+
+            // Обновляем время активации в заголовке
+            activationTimeElement.textContent = status.activation_time;
+
+            if (status.is_blocked) {
+                recordButton.disabled = true;
+                recordButton.textContent = 'АККАУНТ ЗАБЛОКИРОВАН';
+                timerElement.textContent = 'Ваш аккаунт заблокирован администратором';
+                timerElement.style.color = '#e74c3c';
+                return;
+            }
+
+            // Проверяем завершена ли запись полностью
+            if (status.registration_completed) {
+                recordButton.disabled = true;
+                recordButton.classList.remove('pulse');
+                recordButton.textContent = 'ЗАПИСАТЬСЯ';
+                timerElement.textContent = 'Запись завершена до следующего раза';
+                timerElement.style.color = '#e74c3c';
+                statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
+                return;
+            }
+
+            if (status.is_active && status.is_registration_open) {
+                recordButton.disabled = false;
+                recordButton.classList.add('pulse');
+                recordButton.textContent = 'ЗАПИСАТЬСЯ';
+                timerElement.textContent = 'Запись открыта!';
+                statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
+                statusElement.style.color = '#2ecc71';
+            } else {
+                recordButton.disabled = true;
+                recordButton.classList.remove('pulse');
+                recordButton.textContent = 'ЗАПИСАТЬСЯ';
+
+                if (!status.is_registration_open) {
+                    timerElement.textContent = 'Запись временно закрыта администратором';
+                    timerElement.style.color = '#e74c3c';
+                } else {
+                    const hours = Math.floor(status.time_until_active / 3600);
+                    const minutes = Math.floor((status.time_until_active % 3600) / 60);
+                    const seconds = status.time_until_active % 60;
+
+                    timerElement.textContent = `До открытия записи: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    timerElement.style.color = hours === 0 && minutes < 10 ? '#ffcc00' : 'white';
+                }
+
+                statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
+                statusElement.style.color = 'white';
+            }
+        }
+
         // Функция для копирования ссылки
         function copyLink() {
             const link = document.getElementById('shareLink').textContent;
@@ -196,78 +302,6 @@
             }
         }
 
-        // Временная функция для отладки - удалить после исправления
-        async function checkDebugTime() {
-            try {
-                const response = await fetch(`${API_BASE}/api/debug/time`);
-                const data = await response.json();
-                document.getElementById('debugStatus').innerHTML = `
-                    <pre>${JSON.stringify(data, null, 2)}</pre>
-                `;
-            } catch (error) {
-                console.error('Ошибка отладки:', error);
-            }
-        }
-
-        // Обновите функцию updateTimer для отображения отладочной информации
-        async function updateTimer() {
-            const status = await getStatus();
-            if (!status) return;
-
-            // Обновляем московское время
-            if (status.moscow_time) {
-                moscowTimeElement.textContent = status.moscow_time;
-            }
-
-            // Обновляем время активации в заголовке
-            activationTimeElement.textContent = status.activation_time;
-
-            // Временная отладочная информация
-            if (status.debug_info) {
-                document.getElementById('debugStatus').innerHTML = `
-                    <div>Текущее время: ${status.debug_info.current_time}</div>
-                    <div>Время активации: ${status.debug_info.target_time}</div>
-                    <div>Кнопка активна: ${status.debug_info.is_active ? 'ДА' : 'НЕТ'}</div>
-                    <div>Запись открыта: ${status.is_registration_open ? 'ДА' : 'НЕТ'}</div>
-                `;
-            }
-
-            if (status.is_blocked) {
-                recordButton.disabled = true;
-                recordButton.textContent = 'АККАУНТ ЗАБЛОКИРОВАН';
-                timerElement.textContent = 'Ваш аккаунт заблокирован администратором';
-                timerElement.style.color = '#e74c3c';
-                return;
-            }
-
-            if (status.is_active && status.is_registration_open) {
-                recordButton.disabled = false;
-                recordButton.classList.add('pulse');
-                recordButton.textContent = 'ЗАПИСАТЬСЯ';
-                timerElement.textContent = 'Запись открыта!';
-                statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
-                statusElement.style.color = '#2ecc71';
-            } else {
-                recordButton.disabled = true;
-                recordButton.classList.remove('pulse');
-                recordButton.textContent = 'ЗАПИСАТЬСЯ';
-
-                if (!status.is_registration_open) {
-                    timerElement.textContent = 'Запись временно закрыта администратором';
-                    timerElement.style.color = '#e74c3c';
-                } else {
-                    const hours = Math.floor(status.time_until_active / 3600);
-                    const minutes = Math.floor((status.time_until_active % 3600) / 60);
-                    const seconds = status.time_until_active % 60;
-
-                    timerElement.textContent = `До открытия записи: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-                    timerElement.style.color = hours === 0 && minutes < 10 ? '#ffcc00' : 'white';
-                }
-
-                statusElement.textContent = `Записалось пользователей: ${status.total_users}`;
-                statusElement.style.color = 'white';
-            }
-        }
 
         // Функция для обновления таблицы
         async function updateTable() {
@@ -553,6 +587,20 @@
                     } else {
                         toggleBtn.classList.add('closed');
                         toggleBtn.textContent = 'Запись закрыта';
+                    }
+
+                    // Настраиваем кнопку завершения записи
+                    const completeBtn = document.getElementById('completeRegistration');
+                    if (settings.registration_completed) {
+                        completeBtn.textContent = '🔄 Возобновить запись';
+                        completeBtn.onclick = reopenRegistration;
+                        completeBtn.classList.remove('complete-btn');
+                        completeBtn.classList.add('reopen-btn');
+                    } else {
+                        completeBtn.textContent = '✅ Завершить запись';
+                        completeBtn.onclick = completeRegistration;
+                        completeBtn.classList.remove('reopen-btn');
+                        completeBtn.classList.add('complete-btn');
                     }
                 }
             } catch (error) {
